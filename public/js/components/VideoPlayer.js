@@ -169,7 +169,8 @@ class VideoPlayer {
             this.isUsingProxy = needsProxy;
             const finalUrl = needsProxy ? this.getProxiedUrl(streamUrl) : streamUrl;
 
-            if (finalUrl.includes('.m3u8') && Hls.isSupported()) {
+            // Priority 1: Use HLS.js for all browsers that support it (Chrome, Firefox, Edge, etc.)
+            if (Hls.isSupported()) {
                 this.hls = new Hls();
                 this.hls.loadSource(finalUrl);
                 this.hls.attachMedia(this.video);
@@ -191,8 +192,9 @@ class VideoPlayer {
                         }
                     }
                 });
-            } else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
-                // Native HLS support (Safari)
+            } else if (this.video.canPlayType('application/vnd.apple.mpegurl') === 'probably' ||
+                this.video.canPlayType('application/vnd.apple.mpegurl') === 'maybe') {
+                // Priority 2: Native HLS support (Safari on iOS/macOS where HLS.js may not work)
                 this.video.src = finalUrl;
                 this.video.play().catch(e => {
                     console.log('Autoplay prevented, trying proxy if CORS error:', e);
@@ -203,7 +205,7 @@ class VideoPlayer {
                     }
                 });
             } else {
-                // Try direct playback
+                // Priority 3: Try direct playback for non-HLS streams
                 this.video.src = finalUrl;
                 this.video.play().catch(e => console.log('Autoplay prevented:', e));
             }
