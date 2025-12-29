@@ -216,11 +216,23 @@ class ChannelList {
             groupedChannels['Favorites'] = favoritedChannels;
         }
 
-        // 4. Sort Groups
-        this.sortedGroups = Object.keys(groupedChannels).sort((a, b) => {
+        // 4. Sort Groups and filter to only those with visible channels
+        const allGroups = Object.keys(groupedChannels).sort((a, b) => {
             if (a === 'Favorites') return -1;
             if (b === 'Favorites') return 1;
             return a.localeCompare(b);
+        });
+
+        // Pre-filter to only include groups with visible channels (so hidden groups don't consume batch slots)
+        this.sortedGroups = allGroups.filter(groupName => {
+            if (groupName === 'Favorites') return true;
+            const channels = groupedChannels[groupName];
+            // Check if any channel in this group is visible
+            return channels.some(channel => {
+                const rawChannelId = channel.streamId || channel.id;
+                const isHidden = this.isHidden('channel', channel.sourceId, rawChannelId);
+                return !isHidden || showHidden;
+            });
         });
 
         this.groupedChannels = groupedChannels;
@@ -819,7 +831,8 @@ class ChannelList {
         // Get stream URL
         let streamUrl;
         if (channel.sourceType === 'xtream') {
-            const result = await API.proxy.xtream.getStreamUrl(channel.sourceId, channel.streamId, 'live');
+            const streamFormat = localStorage.getItem('nodecast_tv_stream_format') || 'm3u8';
+            const result = await API.proxy.xtream.getStreamUrl(channel.sourceId, channel.streamId, 'live', streamFormat);
             streamUrl = result.url;
         } else {
             streamUrl = channel.url;

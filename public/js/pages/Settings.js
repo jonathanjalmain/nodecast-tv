@@ -97,6 +97,19 @@ class SettingsPage {
                 localStorage.setItem('nodecast_tv_epg_refresh_interval', epgRefreshSelect.value);
             });
         }
+
+        // Stream output format
+        const streamFormatSelect = document.getElementById('setting-stream-format');
+        if (streamFormatSelect) {
+            // Load saved value
+            const savedFormat = localStorage.getItem('nodecast_tv_stream_format') || 'm3u8';
+            streamFormatSelect.value = savedFormat;
+
+            // Save on change
+            streamFormatSelect.addEventListener('change', () => {
+                localStorage.setItem('nodecast_tv_stream_format', streamFormatSelect.value);
+            });
+        }
     }
 
     switchTab(tabName) {
