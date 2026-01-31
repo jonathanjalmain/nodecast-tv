@@ -107,3 +107,5 @@ See the [LICENSE](LICENSE) file for details.
 -   **fix** Non-monotonic DTS in output stream 0:0; previous: 27165000, current: 27165000; changing to 27165001. This may result in incorrect     timestamps in the output file.
 
 -   **add** Settings to save prefered language and subtitles
+
+-   **add** a room system that lets you watch with friends in direct like netflixparty (google chrome extansion) with the use of radminVPN(hamachi or others) for youre friends to connect in local with the posibility to have different language and subtitles between user currently watching. also make the pause button works for every user in the room
