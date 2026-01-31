@@ -65,6 +65,11 @@ class WatchPage {
         this.captionsMenu = document.getElementById('watch-captions-menu');
         this.captionsList = document.getElementById('watch-captions-list');
 
+        // Audio Tracks
+        this.audioBtn = document.getElementById('watch-audio-btn');
+        this.audioMenu = document.getElementById('watch-audio-menu');
+        this.audioList = document.getElementById('watch-audio-list');
+
         // Transcode Status
         this.transcodeStatusEx = document.getElementById('watch-transcode-status');
         this.qualityBadgeEl = document.getElementById('watch-quality-badge');
@@ -79,6 +84,7 @@ class WatchPage {
         this.isFavorite = false;
         this.returnPage = null;
         this.captionsMenuOpen = false;
+        this.audioMenuOpen = false;
 
         // Overlay timer
         this.overlayTimeout = null;
@@ -229,6 +235,19 @@ class WatchPage {
             }
         });
 
+        // Audio tracks toggle
+        this.audioBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleAudioMenu();
+        });
+
+        // Close audio menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (this.audioMenuOpen && !this.audioMenu?.contains(e.target) && e.target !== this.audioBtn) {
+                this.closeAudioMenu();
+            }
+        });
+
         // Hide scroll hint after scrolling
         const watchPage = document.getElementById('page-watch');
         watchPage?.addEventListener('scroll', () => {
@@ -335,6 +354,7 @@ class WatchPage {
                 body: JSON.stringify({
                     url,
                     seekOffset: this.resumeTime, // Pass resume point to backend
+                    audioTrack: this.selectedAudioTrack || 0, // Pass selected audio track
                     ...options
                 })
             });
@@ -412,6 +432,8 @@ class WatchPage {
     async loadVideo(url) {
         // Store the URL for copy functionality
         this.currentUrl = url;
+        this.originalUrl = url; // Keep original URL for subtitle extraction
+        this.knownDuration = 0; // Reset known duration
 
         // Stop any existing playback
         this.stop();
@@ -439,11 +461,17 @@ class WatchPage {
                 const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
                 const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
                 const info = await probeRes.json();
-                console.log(`[WatchPage] Probe result: video=${info.video}, audio=${info.audio}, ${info.width}x${info.height}, compatible=${info.compatible}`);
+                console.log(`[WatchPage] Probe result: video=${info.video}, audio=${info.audio}, ${info.width}x${info.height}, duration=${info.duration}s, compatible=${info.compatible}`);
 
-                // Store early probe info for quality display
+                // Store early probe info for quality display and duration
                 this.currentStreamInfo = info;
+                this.knownDuration = info.duration || 0; // Store known duration from probe
                 this.updateQualityBadge();
+                
+                // Update total time display immediately if we have duration
+                if (this.knownDuration > 0 && this.timeTotal) {
+                    this.timeTotal.textContent = this.formatTime(this.knownDuration);
+                }
 
                 if (info.needsTranscode || settings.upscaleEnabled) {
                     console.log(`[WatchPage] Auto: Using HLS transcode session (${settings.upscaleEnabled ? 'Upscaling' : 'Incompatible audio/video'})`);
@@ -573,10 +601,30 @@ class WatchPage {
             maxMaxBufferLength: 60,
             startLevel: -1,
             enableWorker: true,
+            // Caption/Subtitle settings
+            enableCEA708Captions: true,
+            enableWebVTT: true,
+            renderTextTracksNatively: true
         });
 
         this.hls.loadSource(url);
         this.hls.attachMedia(this.video);
+
+        // Listen for audio track updates
+        this.hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (event, data) => {
+            console.log('[WatchPage] Audio tracks updated:', data.audioTracks);
+            if (data.audioTracks && data.audioTracks.length > 0) {
+                console.log(`[WatchPage] Found ${data.audioTracks.length} audio track(s)`);
+                // Update menu if open
+                if (this.audioMenuOpen) {
+                    this.updateAudioTracks();
+                }
+            }
+        });
+
+        this.hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
+            console.log('[WatchPage] Audio track switched:', data);
+        });
 
         // Listen for subtitle track updates
         this.hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (event, data) => {
@@ -589,7 +637,8 @@ class WatchPage {
             console.log('[WatchPage] Subtitle track switched:', data);
         });
 
-        this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        this.hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+            console.log('[WatchPage] Manifest parsed - audio tracks:', this.hls.audioTracks?.length || 0, 'subtitle tracks:', this.hls.subtitleTracks?.length || 0);
             this.video.play().catch(e => {
                 if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
             });
@@ -625,8 +674,9 @@ class WatchPage {
         this.stopTranscodeSession();
         this.updateTranscodeStatus('hidden');
 
-        // Hide quality badge
+        // Hide quality badge and reset duration
         this.currentStreamInfo = null;
+        this.knownDuration = 0;
         if (this.qualityBadgeEl) {
             this.qualityBadgeEl.classList.add('hidden');
         }
@@ -656,13 +706,17 @@ class WatchPage {
 
     skip(seconds) {
         if (this.video) {
-            this.video.currentTime = Math.max(0, Math.min(this.video.currentTime + seconds, this.video.duration || 0));
+            const duration = this.knownDuration > 0 ? this.knownDuration : (this.video.duration || 0);
+            this.video.currentTime = Math.max(0, Math.min(this.video.currentTime + seconds, duration));
         }
     }
 
     seek(percent) {
-        if (this.video && this.video.duration) {
-            this.video.currentTime = (percent / 100) * this.video.duration;
+        if (this.video) {
+            const duration = this.knownDuration > 0 ? this.knownDuration : this.video.duration;
+            if (duration) {
+                this.video.currentTime = (percent / 100) * duration;
+            }
         }
     }
 
@@ -758,19 +812,26 @@ class WatchPage {
     // === UI Updates ===
 
     updateProgress() {
-        if (!this.video || !this.video.duration) return;
+        if (!this.video) return;
+        
+        // Use known duration from probe if available, otherwise fall back to video.duration
+        const duration = this.knownDuration > 0 ? this.knownDuration : this.video.duration;
+        if (!duration) return;
 
-        const percent = (this.video.currentTime / this.video.duration) * 100;
+        const currentTime = this.video.currentTime;
+        const percent = (currentTime / duration) * 100;
         this.progressSlider.value = percent;
-        this.timeCurrent.textContent = this.formatTime(this.video.currentTime);
+        this.timeCurrent.textContent = this.formatTime(currentTime);
+        
+        // Update total time display
+        if (this.timeTotal) {
+            this.timeTotal.textContent = this.formatTime(duration);
+        }
 
         // Show "Up Next" panel early for series (like streaming services do during credits)
         // Only show if auto-play next episode is enabled
         const autoPlayEnabled = this.app?.player?.settings?.autoPlayNextEpisode;
         if (autoPlayEnabled && this.contentType === 'series' && this.seriesInfo && !this.nextEpisodeShowing && !this.nextEpisodeDismissed) {
-            const duration = this.video.duration;
-            const currentTime = this.video.currentTime;
-
             // Only proceed if we have reliable duration data
             if (isFinite(duration) && duration >= 180 && currentTime >= 120) {
                 const timeRemaining = duration - currentTime;
@@ -788,18 +849,24 @@ class WatchPage {
     }
 
     onMetadataLoaded() {
-        // Detect resolution
-        if (this.video && this.video.videoHeight > 0) {
+        // Detect resolution - only update if we don't already have probe info
+        if (this.video && this.video.videoHeight > 0 && !this.currentStreamInfo?.height) {
             this.currentStreamInfo = {
+                ...this.currentStreamInfo,
                 width: this.video.videoWidth,
                 height: this.video.videoHeight
             };
             this.updateQualityBadge();
         }
+        
+        // Update duration display - use probe duration if available
+        const duration = this.knownDuration > 0 ? this.knownDuration : this.video?.duration;
+        if (duration > 0 && this.timeTotal) {
+            this.timeTotal.textContent = this.formatTime(duration);
+        }
 
         // Handle resumption
         if (this.resumeTime > 0 && this.video) {
-            const duration = this.video.duration;
             // Only resume if not near the end (95%)
             if (!duration || this.resumeTime < duration * 0.95) {
                 console.log(`[WatchPage] Resuming at ${this.resumeTime}s`);
@@ -900,6 +967,7 @@ class WatchPage {
         // Build list of available text tracks
         const tracks = this.video.textTracks;
         let html = '<button class="captions-option" data-index="-1">Off</button>';
+        let trackCount = 0;
 
         for (let i = 0; i < tracks.length; i++) {
             const track = tracks[i];
@@ -907,7 +975,28 @@ class WatchPage {
                 const label = track.label || track.language || `Track ${i + 1}`;
                 const isActive = track.mode === 'showing';
                 html += `<button class="captions-option ${isActive ? 'active' : ''}" data-index="${i}">${label}</button>`;
+                trackCount++;
             }
+        }
+
+        // If no native tracks but we have probe info with subtitles, show them
+        if (trackCount === 0 && this.currentStreamInfo?.subtitles && this.currentStreamInfo.subtitles.length > 0) {
+            this.currentStreamInfo.subtitles.forEach((sub, index) => {
+                let label = sub.title || `Subtitle ${index + 1}`;
+                if (sub.language && sub.language !== 'und') {
+                    const langName = this.getLanguageName(sub.language);
+                    if (langName && !label.toLowerCase().includes(langName.toLowerCase())) {
+                        label += ` (${langName})`;
+                    }
+                }
+                if (sub.forced) {
+                    label += ' [Forced]';
+                }
+                html += `<button class="captions-option" data-index="${index}" data-subtitle-index="${sub.index}">${label}</button>`;
+            });
+            
+            // Add note that subtitles require extraction
+            html += '<div class="captions-option-note">Subtitles via extraction</div>';
         }
 
         // Check if any track is active, if not mark "Off" as active
@@ -923,8 +1012,64 @@ class WatchPage {
 
         // Add click handlers
         this.captionsList.querySelectorAll('.captions-option').forEach(btn => {
-            btn.addEventListener('click', () => this.selectCaptionTrack(parseInt(btn.dataset.index)));
+            const subtitleIndex = btn.dataset.subtitleIndex;
+            if (subtitleIndex !== undefined) {
+                // This is a subtitle from probe info - load it via API
+                btn.addEventListener('click', () => this.loadExternalSubtitle(parseInt(subtitleIndex)));
+            } else {
+                btn.addEventListener('click', () => this.selectCaptionTrack(parseInt(btn.dataset.index)));
+            }
         });
+    }
+
+    /**
+     * Load external subtitle from video file via extraction API
+     */
+    async loadExternalSubtitle(streamIndex) {
+        if (!this.currentUrl) return;
+
+        console.log(`[WatchPage] Loading external subtitle track ${streamIndex}`);
+
+        try {
+            // Build subtitle extraction URL
+            const subtitleUrl = `/api/subtitle?url=${encodeURIComponent(this.originalUrl || this.currentUrl)}&index=${streamIndex}`;
+            
+            // Remove existing external tracks
+            const existingTracks = this.video.querySelectorAll('track.external-subtitle');
+            existingTracks.forEach(t => t.remove());
+
+            // Create new track element
+            const track = document.createElement('track');
+            track.className = 'external-subtitle';
+            track.kind = 'subtitles';
+            track.src = subtitleUrl;
+            track.default = true;
+            
+            // Find label from probe info
+            const subInfo = this.currentStreamInfo?.subtitles?.find(s => s.index === streamIndex);
+            if (subInfo) {
+                track.label = subInfo.title || this.getLanguageName(subInfo.language) || 'Subtitles';
+                track.srclang = subInfo.language || 'und';
+            }
+
+            this.video.appendChild(track);
+
+            // Wait a moment then enable the track
+            setTimeout(() => {
+                // Disable all other tracks
+                for (let i = 0; i < this.video.textTracks.length; i++) {
+                    this.video.textTracks[i].mode = 'hidden';
+                }
+                // Enable the new track
+                track.track.mode = 'showing';
+                this.updateCaptionsTracks();
+            }, 100);
+
+        } catch (err) {
+            console.error('[WatchPage] Failed to load subtitle:', err);
+        }
+
+        this.closeCaptionsMenu();
     }
 
     selectCaptionTrack(index) {
@@ -945,6 +1090,237 @@ class WatchPage {
         // Update UI
         this.updateCaptionsTracks();
         this.closeCaptionsMenu();
+    }
+
+    // === Audio Tracks ===
+
+    toggleAudioMenu() {
+        if (this.audioMenuOpen) {
+            this.closeAudioMenu();
+        } else {
+            this.updateAudioTracks();
+            this.audioMenu?.classList.remove('hidden');
+            this.audioMenuOpen = true;
+        }
+    }
+
+    closeAudioMenu() {
+        this.audioMenu?.classList.add('hidden');
+        this.audioMenuOpen = false;
+    }
+
+    updateAudioTracks() {
+        if (!this.audioList) return;
+
+        // Clear existing list
+        this.audioList.innerHTML = '';
+
+        // Check if HLS.js is active and has audio tracks
+        if (this.hls && this.hls.audioTracks && this.hls.audioTracks.length > 1) {
+            const currentTrack = this.hls.audioTrack;
+
+            this.hls.audioTracks.forEach((track, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'audio-option';
+                
+                // Build label: name + language if available
+                let label = track.name || `Audio ${index + 1}`;
+                if (track.lang) {
+                    const langName = this.getLanguageName(track.lang);
+                    if (langName && !label.toLowerCase().includes(langName.toLowerCase())) {
+                        label += ` (${langName})`;
+                    }
+                }
+                
+                btn.textContent = label;
+                btn.dataset.index = index;
+
+                if (index === currentTrack) {
+                    btn.classList.add('active');
+                }
+
+                btn.addEventListener('click', () => this.selectAudioTrack(index));
+                this.audioList.appendChild(btn);
+            });
+        } else if (this.currentStreamInfo?.audioTracks && this.currentStreamInfo.audioTracks.length > 1) {
+            // Show audio tracks from probe info (for transcoded streams)
+            // Note: These can't be switched dynamically, but show what's available
+            this.currentStreamInfo.audioTracks.forEach((track, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'audio-option';
+                
+                let label = track.title || `Audio ${index + 1}`;
+                if (track.language && track.language !== 'und') {
+                    const langName = this.getLanguageName(track.language);
+                    if (langName && !label.toLowerCase().includes(langName.toLowerCase())) {
+                        label += ` (${langName})`;
+                    }
+                }
+                if (track.channels) {
+                    label += ` [${track.channels}ch]`;
+                }
+                
+                btn.textContent = label;
+                btn.dataset.index = index;
+
+                // First track is the one currently playing
+                if (index === 0) {
+                    btn.classList.add('active');
+                }
+
+                btn.addEventListener('click', () => this.selectAudioTrackWithReload(index));
+                this.audioList.appendChild(btn);
+            });
+
+            // Add info note
+            if (this.currentStreamInfo.audioTracks.length > 1) {
+                const note = document.createElement('div');
+                note.className = 'audio-option-note';
+                note.textContent = 'Changing audio restarts playback';
+                this.audioList.appendChild(note);
+            }
+        } else {
+            // No multiple audio tracks available
+            const emptyMsg = document.createElement('div');
+            emptyMsg.className = 'audio-option-empty';
+            emptyMsg.textContent = 'No alternate audio tracks';
+            this.audioList.appendChild(emptyMsg);
+        }
+    }
+
+    selectAudioTrack(index) {
+        if (!this.hls) return;
+
+        console.log(`[WatchPage] Switching to audio track ${index}`);
+        this.hls.audioTrack = index;
+
+        // Update UI
+        this.updateAudioTracks();
+        this.closeAudioMenu();
+    }
+
+    /**
+     * Select audio track with stream reload (for transcoded streams)
+     */
+    async selectAudioTrackWithReload(index) {
+        if (!this.content || !this.currentUrl) return;
+
+        console.log(`[WatchPage] Reloading with audio track ${index}`);
+        
+        // Store current playback position
+        const currentTime = this.video?.currentTime || 0;
+        
+        // Update the audio track index for the next transcode session
+        this.selectedAudioTrack = index;
+        
+        // Reload with new audio track
+        // Note: This requires server-side support to select audio track
+        const baseUrl = this.currentUrl.split('?')[0];
+        const params = new URLSearchParams(this.currentUrl.split('?')[1] || '');
+        
+        // Close menu
+        this.closeAudioMenu();
+        
+        // Show loading
+        this.showLoading();
+        
+        // Restart playback from current position with new audio track
+        // The transcode session needs to be restarted with the new audio track
+        this.resumeTime = currentTime;
+        
+        // Reload the video
+        await this.loadVideo(this.originalUrl || baseUrl);
+    }
+
+    /**
+     * Get human-readable language name from ISO code
+     */
+    getLanguageName(code) {
+        const languages = {
+            'en': 'English',
+            'eng': 'English',
+            'fr': 'French',
+            'fra': 'French',
+            'fre': 'French',
+            'es': 'Spanish',
+            'spa': 'Spanish',
+            'de': 'German',
+            'deu': 'German',
+            'ger': 'German',
+            'it': 'Italian',
+            'ita': 'Italian',
+            'pt': 'Portuguese',
+            'por': 'Portuguese',
+            'ru': 'Russian',
+            'rus': 'Russian',
+            'ja': 'Japanese',
+            'jpn': 'Japanese',
+            'zh': 'Chinese',
+            'zho': 'Chinese',
+            'chi': 'Chinese',
+            'ko': 'Korean',
+            'kor': 'Korean',
+            'ar': 'Arabic',
+            'ara': 'Arabic',
+            'hi': 'Hindi',
+            'hin': 'Hindi',
+            'nl': 'Dutch',
+            'nld': 'Dutch',
+            'dut': 'Dutch',
+            'pl': 'Polish',
+            'pol': 'Polish',
+            'tr': 'Turkish',
+            'tur': 'Turkish',
+            'sv': 'Swedish',
+            'swe': 'Swedish',
+            'da': 'Danish',
+            'dan': 'Danish',
+            'no': 'Norwegian',
+            'nor': 'Norwegian',
+            'fi': 'Finnish',
+            'fin': 'Finnish',
+            'cs': 'Czech',
+            'ces': 'Czech',
+            'cze': 'Czech',
+            'el': 'Greek',
+            'ell': 'Greek',
+            'gre': 'Greek',
+            'he': 'Hebrew',
+            'heb': 'Hebrew',
+            'th': 'Thai',
+            'tha': 'Thai',
+            'vi': 'Vietnamese',
+            'vie': 'Vietnamese',
+            'id': 'Indonesian',
+            'ind': 'Indonesian',
+            'ms': 'Malay',
+            'msa': 'Malay',
+            'may': 'Malay',
+            'uk': 'Ukrainian',
+            'ukr': 'Ukrainian',
+            'ro': 'Romanian',
+            'ron': 'Romanian',
+            'rum': 'Romanian',
+            'hu': 'Hungarian',
+            'hun': 'Hungarian',
+            'bg': 'Bulgarian',
+            'bul': 'Bulgarian',
+            'hr': 'Croatian',
+            'hrv': 'Croatian',
+            'sk': 'Slovak',
+            'slk': 'Slovak',
+            'slo': 'Slovak',
+            'sl': 'Slovenian',
+            'slv': 'Slovenian',
+            'sr': 'Serbian',
+            'srp': 'Serbian',
+            'und': 'Unknown',
+            'mul': 'Multiple',
+            'qaa': 'Original',
+            'mis': 'Miscellaneous'
+        };
+
+        return languages[code?.toLowerCase()] || code;
     }
 
     // === Overlay Auto-Hide ===

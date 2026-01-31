@@ -320,6 +320,26 @@ class VideoPlayer {
             }
         });
 
+        // Audio Tracks
+        this.audioBtn = document.getElementById('player-audio-btn');
+        this.audioMenu = document.getElementById('player-audio-menu');
+        this.audioList = document.getElementById('player-audio-list');
+        this.audioMenuOpen = false;
+
+        this.audioBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleAudioMenu();
+        });
+
+        // Close audio menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (this.audioMenuOpen &&
+                !this.audioMenu.contains(e.target) &&
+                !this.audioBtn.contains(e.target)) {
+                this.closeAudioMenu();
+            }
+        });
+
         // Fullscreen
         btnFullscreen?.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -587,6 +607,184 @@ class VideoPlayer {
         this.closeCaptionsMenu();
     }
 
+    /**
+     * Toggle audio tracks menu visibility
+     */
+    toggleAudioMenu() {
+        if (!this.audioMenu) return;
+
+        this.audioMenuOpen = !this.audioMenuOpen;
+
+        if (this.audioMenuOpen) {
+            this.updateAudioTracks();
+            this.audioMenu.classList.remove('hidden');
+        } else {
+            this.audioMenu.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Close audio menu
+     */
+    closeAudioMenu() {
+        if (!this.audioMenu) return;
+        this.audioMenuOpen = false;
+        this.audioMenu.classList.add('hidden');
+    }
+
+    /**
+     * Update available audio tracks in the menu
+     */
+    updateAudioTracks() {
+        if (!this.audioList) return;
+
+        // Clear existing list
+        this.audioList.innerHTML = '';
+
+        // Check if HLS.js is active and has audio tracks
+        if (this.hls && this.hls.audioTracks && this.hls.audioTracks.length > 1) {
+            const currentTrack = this.hls.audioTrack;
+
+            this.hls.audioTracks.forEach((track, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'audio-option';
+                
+                // Build label: name + language if available
+                let label = track.name || `Audio ${index + 1}`;
+                if (track.lang) {
+                    // Get language name from code
+                    const langName = this.getLanguageName(track.lang);
+                    if (langName && !label.toLowerCase().includes(langName.toLowerCase())) {
+                        label += ` (${langName})`;
+                    }
+                }
+                
+                btn.textContent = label;
+                btn.dataset.index = index;
+
+                if (index === currentTrack) {
+                    btn.classList.add('active');
+                }
+
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    this.selectAudioTrack(index);
+                };
+
+                this.audioList.appendChild(btn);
+            });
+        } else {
+            // No multiple audio tracks available
+            const emptyMsg = document.createElement('div');
+            emptyMsg.className = 'audio-option-empty';
+            emptyMsg.textContent = 'No alternate audio tracks';
+            this.audioList.appendChild(emptyMsg);
+        }
+    }
+
+    /**
+     * Select an audio track
+     */
+    selectAudioTrack(index) {
+        if (!this.hls) return;
+
+        console.log(`[Player] Switching to audio track ${index}`);
+        this.hls.audioTrack = index;
+
+        this.closeAudioMenu();
+    }
+
+    /**
+     * Get human-readable language name from ISO code
+     */
+    getLanguageName(code) {
+        const languages = {
+            'en': 'English',
+            'eng': 'English',
+            'fr': 'French',
+            'fra': 'French',
+            'fre': 'French',
+            'es': 'Spanish',
+            'spa': 'Spanish',
+            'de': 'German',
+            'deu': 'German',
+            'ger': 'German',
+            'it': 'Italian',
+            'ita': 'Italian',
+            'pt': 'Portuguese',
+            'por': 'Portuguese',
+            'ru': 'Russian',
+            'rus': 'Russian',
+            'ja': 'Japanese',
+            'jpn': 'Japanese',
+            'zh': 'Chinese',
+            'zho': 'Chinese',
+            'chi': 'Chinese',
+            'ko': 'Korean',
+            'kor': 'Korean',
+            'ar': 'Arabic',
+            'ara': 'Arabic',
+            'hi': 'Hindi',
+            'hin': 'Hindi',
+            'nl': 'Dutch',
+            'nld': 'Dutch',
+            'dut': 'Dutch',
+            'pl': 'Polish',
+            'pol': 'Polish',
+            'tr': 'Turkish',
+            'tur': 'Turkish',
+            'sv': 'Swedish',
+            'swe': 'Swedish',
+            'da': 'Danish',
+            'dan': 'Danish',
+            'no': 'Norwegian',
+            'nor': 'Norwegian',
+            'fi': 'Finnish',
+            'fin': 'Finnish',
+            'cs': 'Czech',
+            'ces': 'Czech',
+            'cze': 'Czech',
+            'el': 'Greek',
+            'ell': 'Greek',
+            'gre': 'Greek',
+            'he': 'Hebrew',
+            'heb': 'Hebrew',
+            'th': 'Thai',
+            'tha': 'Thai',
+            'vi': 'Vietnamese',
+            'vie': 'Vietnamese',
+            'id': 'Indonesian',
+            'ind': 'Indonesian',
+            'ms': 'Malay',
+            'msa': 'Malay',
+            'may': 'Malay',
+            'uk': 'Ukrainian',
+            'ukr': 'Ukrainian',
+            'ro': 'Romanian',
+            'ron': 'Romanian',
+            'rum': 'Romanian',
+            'hu': 'Hungarian',
+            'hun': 'Hungarian',
+            'bg': 'Bulgarian',
+            'bul': 'Bulgarian',
+            'hr': 'Croatian',
+            'hrv': 'Croatian',
+            'sk': 'Slovak',
+            'slk': 'Slovak',
+            'slo': 'Slovak',
+            'sl': 'Slovenian',
+            'slv': 'Slovenian',
+            'sr': 'Serbian',
+            'srp': 'Serbian',
+            'und': 'Unknown',
+            'mul': 'Multiple',
+            'qaa': 'Original',
+            'mis': 'Miscellaneous'
+        };
+
+        return languages[code?.toLowerCase()] || code;
+    }
+
     init() {
         // Apply default/remembered volume
         const volume = this.settings.rememberVolume ? this.settings.lastVolume : this.settings.defaultVolume;
@@ -755,6 +953,17 @@ class VideoPlayer {
 
             this.hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (event, data) => {
                 console.log('Subtitle track switched:', data);
+            });
+
+            // Listen for audio track updates
+            this.hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (event, data) => {
+                console.log('Audio tracks updated:', data.audioTracks);
+                if (data.audioTracks && data.audioTracks.length > 1) {
+                    // Multiple audio tracks available - update menu if open
+                    if (this.audioMenuOpen) {
+                        this.updateAudioTracks();
+                    }
+                }
             });
 
             this.hls.on(Hls.Events.MANIFEST_PARSED, () => {

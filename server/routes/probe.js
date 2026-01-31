@@ -82,7 +82,8 @@ function analyzeProbeResult(probeResult, url) {
     const format = probeResult.format || {};
 
     const videoStream = streams.find(s => s.codec_type === 'video');
-    const audioStream = streams.find(s => s.codec_type === 'audio');
+    const audioStreams = streams.filter(s => s.codec_type === 'audio');
+    const audioStream = audioStreams[0]; // Primary audio stream
 
     const videoCodec = videoStream?.codec_name?.toLowerCase() || 'unknown';
     const audioCodec = audioStream?.codec_name?.toLowerCase() || 'unknown';
@@ -101,14 +102,26 @@ function analyzeProbeResult(probeResult, url) {
     // Check if it's a raw TS stream (not HLS)
     const isRawTs = (container.includes('mpegts') || url.endsWith('.ts')) && !url.includes('.m3u8');
 
+    // Extract audio tracks
+    const audioTracks = audioStreams.map((s, idx) => ({
+        index: s.index,
+        language: s.tags?.language || 'und',
+        title: s.tags?.title || s.tags?.language || `Audio ${idx + 1}`,
+        codec: s.codec_name,
+        channels: s.channels || 0,
+        default: s.disposition?.default === 1
+    }));
+
     // Extract subtitle tracks
     const subtitles = streams
         .filter(s => s.codec_type === 'subtitle' && s.codec_name !== 'timed_id3' && s.codec_name !== 'bin_data')
-        .map(s => ({
+        .map((s, idx) => ({
             index: s.index,
             language: s.tags?.language || 'und',
-            title: s.tags?.title || s.tags?.language || `Track ${s.index}`,
-            codec: s.codec_name
+            title: s.tags?.title || s.tags?.language || `Subtitle ${idx + 1}`,
+            codec: s.codec_name,
+            default: s.disposition?.default === 1,
+            forced: s.disposition?.forced === 1
         }));
 
     // Determine what processing is needed
@@ -132,9 +145,11 @@ function analyzeProbeResult(probeResult, url) {
         height: videoStream?.height || 0,
         audioChannels: audioStream?.channels || 0, // For Smart Audio Copy
         container: container,
+        duration: parseFloat(format.duration) || 0, // Total duration in seconds
         compatible: compatible,
         needsRemux: needsRemux,
         needsTranscode: needsTranscode,
+        audioTracks: audioTracks,
         subtitles: subtitles
     };
 }

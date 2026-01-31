@@ -212,7 +212,10 @@ class TranscodeSession extends EventEmitter {
 
         // Map streams
         args.push('-map', '0:v:0');
-        args.push('-map', '0:a:0?');
+        
+        // Select audio track (default to first audio track)
+        const audioTrack = this.options.audioTrack || 0;
+        args.push('-map', `0:a:${audioTrack}?`);
 
         // Add video encoder and filters based on selected encoder OR copy
         if (videoMode === 'copy') {
@@ -277,6 +280,10 @@ class TranscodeSession extends EventEmitter {
             '-hls_flags', 'independent_segments+append_list',
             '-hls_segment_type', 'mpegts',
             '-hls_segment_filename', path.join(this.dir, 'seg%04d.ts'),
+            // Fix non-monotonic DTS warnings
+            '-max_muxing_queue_size', '1024',
+            '-muxdelay', '0',
+            '-muxpreload', '0',
             this.playlistPath
         );
 

@@ -3695,6 +3695,85 @@ kbd {
   content: "✓ ";
 }
 
+/* Audio Tracks Menu */
+.watch-audio-wrapper {
+  position: relative;
+}
+
+.watch-audio-menu {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: var(--space-sm);
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  min-width: 180px;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  z-index: 30;
+}
+
+.watch-audio-menu.hidden {
+  display: none;
+}
+
+.audio-menu-title {
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.audio-menu-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.audio-option {
+  display: block;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: none;
+  color: var(--color-text-primary);
+  text-align: left;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.audio-option:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.audio-option.active {
+  color: var(--color-accent);
+}
+
+.audio-option.active::before {
+  content: "✓ ";
+}
+
+.audio-option-empty {
+  padding: var(--space-sm) var(--space-md);
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+.audio-option-note,
+.captions-option-note {
+  padding: var(--space-xs) var(--space-md);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-style: italic;
+  border-top: 1px solid var(--glass-border);
+  background: rgba(0, 0, 0, 0.2);
+}
+
 .watch-btn-lg {
   width: 64px;
   height: 64px;
